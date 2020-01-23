@@ -1,0 +1,9 @@
+---
+
+# credentials to access Open Nebula
+user: oneadmin
+password: oneadmin
+
+# FQDN and port to run the exporter on
+host: ubuntu
+port: 9615
