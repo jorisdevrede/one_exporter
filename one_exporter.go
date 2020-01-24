@@ -28,19 +28,19 @@ var (
 
 	poolTotalMemGauge = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "one_pool_totalmem",
-		Help: "combined total memory of active hosts in open nebula",
+		Help: "total memory of all hosts in open nebula",
 	})
-	poolFreeMemGauge = promauto.NewGauge(prometheus.GaugeOpts{
-		Name: "one_pool_freemem",
-		Help: "combined free memory of active hosts in open nebula",
+	poolUsedMemGauge = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "one_pool_usedmem",
+		Help: "used memory in all hosts in open nebula",
 	})
 	poolTotalCPUGauge = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "one_pool_totalcpu",
-		Help: "combined total cpu of active hosts in open nebula",
+		Help: "total cpu of all hosts in open nebula",
 	})
-	poolFreeCPUGauge = promauto.NewGauge(prometheus.GaugeOpts{
-		Name: "one_pool_freecpu",
-		Help: "combined free memory of active hosts in open nebula",
+	poolUsedCPUGauge = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "one_pool_usedcpu",
+		Help: "used cpu in all hosts in open nebula",
 	})
 	poolActiveHostsGauge = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "one_pool_activehosts",
@@ -52,37 +52,38 @@ var (
 	})
 )
 
-func recordMetrics(pool *host.Pool) {
+func recordMetrics(pool *host.Pool, logger log.Logger) {
+
+	level.Info(logger).Log("msg", "recording metrics from open nebula frontend")
 
 	for {
 		var totalMem int = 0
-		var freeMem int = 0
+		var usedMem int = 0
 		var totalCPU int = 0
-		var freeCPU int = 0
+		var usedCPU int = 0
 		var runningVMs int = 0
 
 		var activeHosts int = 0
 
 		for _, host := range pool.Hosts {
 
-			// state 2 is monitored which means active
+			level.Debug(logger).Log("msg", "host metrics", "host", host.Name)
+
+			totalMem = totalMem + host.Share.TotalMem
+			usedMem = usedMem + host.Share.UsedMem
+			totalCPU = totalCPU + host.Share.TotalCPU
+			usedCPU = usedCPU + host.Share.UsedCPU
+			runningVMs = runningVMs + host.Share.RunningVMs
+
 			if host.StateRaw == 2 {
-
-				totalMem = totalMem + host.Share.TotalMem
-				freeMem = freeMem + host.Share.FreeMem
-				totalCPU = totalCPU + host.Share.TotalCPU
-				freeCPU = freeCPU + host.Share.FreeCPU
-				runningVMs = runningVMs + host.Share.RunningVMs
-
 				activeHosts = activeHosts + 1
-
 			}
 		}
 
 		poolTotalMemGauge.Set(float64(totalMem))
-		poolFreeMemGauge.Set(float64(freeMem))
+		poolUsedMemGauge.Set(float64(usedMem))
 		poolTotalCPUGauge.Set(float64(totalCPU))
-		poolFreeCPUGauge.Set(float64(freeCPU))
+		poolUsedCPUGauge.Set(float64(usedCPU))
 		poolRunningVMsGauge.Set(float64(runningVMs))
 
 		poolActiveHostsGauge.Set(float64(activeHosts))
@@ -142,7 +143,7 @@ func main() {
 		return
 	}
 
-	go recordMetrics(pool)
+	go recordMetrics(pool, logger)
 
 	level.Info(logger).Log("msg", "starting exporter on endpoint /metrics")
 	http.Handle("/metrics", promhttp.Handler())
