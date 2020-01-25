@@ -122,7 +122,7 @@ func newConfig(fileName string, logger log.Logger) config {
 	viper.SetDefault("endpoint", "") // "" will be set to "http://localhost:2633/RPC2" by goca
 	viper.SetDefault("interval", 60)
 	viper.SetDefault("path", "/metrics")
-	viper.SetDefault("port", 9615)
+	viper.SetDefault("port", 9621)
 
 
 	viper.SetConfigType("yaml")

@@ -29,7 +29,7 @@ password: oneadmin
 
 # FQDN and port to run the exporter on
 host: frontend.server.com
-port: 9615
+port: 9621
 
 # exporter uri to publish on. defaults to /metrics
 # path: /metrics
