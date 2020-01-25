@@ -1,19 +1,18 @@
-// Prometheus exporter for Open Nebula.
+// Prometheus exporter for OpenNebula.
 package main
 
 import (
-
 	"net/http"
 	"os"
 	"path"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/log/level"
 
 	"github.com/OpenNebula/one/src/oca/go/src/goca"
-	"github.com/OpenNebula/one/src/oca/go/src/goca/schemas/host"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -24,39 +23,59 @@ import (
 	"gopkg.in/alecthomas/kingpin.v2"
 )
 
-var (
+type config struct {
+	user     string
+	password string
+	endpoint string
+	interval int
+	host     string
+	port     int
+	path     string
+}
 
+var (
 	poolTotalMemGauge = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "one_pool_totalmem",
-		Help: "total memory of all hosts in open nebula",
+		Help: "total memory of all hosts in opennebula",
 	})
 	poolUsedMemGauge = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "one_pool_usedmem",
-		Help: "used memory in all hosts in open nebula",
+		Help: "used memory in all hosts in opennebula",
 	})
 	poolTotalCPUGauge = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "one_pool_totalcpu",
-		Help: "total cpu of all hosts in open nebula",
+		Help: "total cpu of all hosts in opennebula",
 	})
 	poolUsedCPUGauge = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "one_pool_usedcpu",
-		Help: "used cpu in all hosts in open nebula",
+		Help: "used cpu in all hosts in opennebula",
 	})
 	poolActiveHostsGauge = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "one_pool_activehosts",
-		Help: "number of active hosts in open nebula",
+		Help: "number of active hosts in opennebula",
 	})
 	poolRunningVMsGauge = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "one_pool_runningvms",
-		Help: "number of running virtual machines in open nebula",
+		Help: "number of running virtual machines in opennebula",
 	})
 )
 
-func recordMetrics(pool *host.Pool, logger log.Logger) {
+// recordMetrics from OpenNebula
+func recordMetrics(config config, logger log.Logger) {
 
-	level.Info(logger).Log("msg", "recording metrics from open nebula frontend")
+	level.Info(logger).Log("msg", "recording metrics from opennebula frontend", "interval", config.interval)
+
+	client := goca.NewDefaultClient(goca.NewConfig(config.user, config.password, config.endpoint))
+	controller := goca.NewController(client)
 
 	for {
+
+		pool, err := controller.Hosts().Info()
+		if err != nil {
+			level.Error(logger).Log("msg", "error retrieving hosts info", "error", err)
+			panic(err)
+		}
+
 		var totalMem int = 0
 		var usedMem int = 0
 		var totalCPU int = 0
@@ -67,7 +86,13 @@ func recordMetrics(pool *host.Pool, logger log.Logger) {
 
 		for _, host := range pool.Hosts {
 
-			level.Debug(logger).Log("msg", "host metrics", "host", host.Name)
+			level.Debug(logger).Log("msg", "host metrics",
+				"host", host.Name,
+				"TotalMem", host.Share.TotalMem,
+				"UsedMem", host.Share.UsedMem,
+				"TotalCPU", host.Share.TotalCPU,
+				"UsedCPU", host.Share.UsedCPU,
+				"RunningVMs", host.Share.RunningVMs)
 
 			totalMem = totalMem + host.Share.TotalMem
 			usedMem = usedMem + host.Share.UsedMem
@@ -88,34 +113,25 @@ func recordMetrics(pool *host.Pool, logger log.Logger) {
 
 		poolActiveHostsGauge.Set(float64(activeHosts))
 
-		time.Sleep(30 * time.Second)
+		time.Sleep(time.Duration(config.interval) * time.Second)
 	}
 }
 
-func main() {
+func newConfig(fileName string, logger log.Logger) config {
 
-	var (
-		user string
-		password string
-		host string
-		port string
-	)
+	viper.SetDefault("endpoint", "") // "" will be set to "http://localhost:2633/RPC2" by goca
+	viper.SetDefault("interval", 60)
+	viper.SetDefault("path", "/metrics")
+	viper.SetDefault("port", 9615)
 
-	logger := log.NewLogfmtLogger(log.NewSyncWriter(os.Stderr))
-	logger = log.With(logger, "ts", log.DefaultTimestampUTC, "caller", log.DefaultCaller)
-
-	level.Info(logger).Log("msg", "starting exporter for Open Nebula")
-
-	config := kingpin.Flag("config", "config file for one_exporter").Short('c').String()
-	kingpin.Parse()
 
 	viper.SetConfigType("yaml")
 	viper.AddConfigPath(".")
 
-	if *config != "" {
-		level.Info(logger).Log("msg", "using provided configuration file", "config", *config)
+	if fileName != "" {
+		level.Info(logger).Log("msg", "using provided configuration file", "file", fileName)
 
-		dir, file := path.Split(*config)
+		dir, file := path.Split(fileName)
 		viper.SetConfigName(file)
 		viper.AddConfigPath(dir)
 	}
@@ -123,30 +139,52 @@ func main() {
 	err := viper.ReadInConfig()
 	if err != nil {
 		level.Error(logger).Log("msg", "error reading config file", "error", err)
-		return
+		panic(err)
 	}
 
-	user = viper.Get("user").(string)
-	password = viper.Get("password").(string)
-	host = viper.Get("host").(string)
-	port = strconv.Itoa(viper.Get("port").(int))
-
-	level.Info(logger).Log("msg", "using config:", "user", user, "host", host, "port", port)
-
-	conf := goca.NewConfig( user, password, "")
-	client := goca.NewDefaultClient(conf)
-	controller := goca.NewController(client)
-
-	pool, err := controller.Hosts().Info()
-	if err != nil {
-		level.Error(logger).Log("msg", "error retrieving hosts info", "error", err)
-		return
+	return config{
+		user:     viper.Get("user").(string),
+		password: viper.Get("password").(string),
+		endpoint: "",
+		interval: viper.Get("interval").(int),
+		host:     viper.Get("host").(string),
+		port:     viper.Get("port").(int),
+		path:     viper.Get("path").(string),
 	}
 
-	go recordMetrics(pool, logger)
+}
 
-	level.Info(logger).Log("msg", "starting exporter on endpoint /metrics")
-	http.Handle("/metrics", promhttp.Handler())
-	http.ListenAndServe(host + ":" + port, nil)
+func allowedLevel(logLevel string) level.Option {
+
+	switch strings.ToLower(logLevel) {
+	case "error":
+		return level.AllowError()
+	case "debug":
+		return level.AllowDebug()
+	default:
+		return level.AllowInfo()
+	}
+}
+
+func main() {
+
+	logger := log.NewLogfmtLogger(log.NewSyncWriter(os.Stderr))
+	logger = log.With(logger, "ts", log.DefaultTimestampUTC, "caller", log.DefaultCaller)
+
+	cfgFile := kingpin.Flag("config", "config file for one_exporter").Short('c').String()
+	logLevel := kingpin.Flag("loglevel", "the log level to output. options are error, info or debug. defaults to info").Short('l').Default("info").String()
+	kingpin.Parse()
+
+	logger = level.NewFilter(logger, allowedLevel(*logLevel))
+	level.Info(logger).Log("msg", "starting exporter for OpenNebula")
+
+	config := newConfig(*cfgFile, logger)
+	level.Debug(logger).Log("msg", "loaded config", "user", config.user, "endpoint", config.endpoint)
+
+	go recordMetrics(config, logger)
+
+	level.Info(logger).Log("msg", "starting exporter", "host", config.host, "port", config.port, "path", config.path)
+	http.Handle(config.path, promhttp.Handler())
+	http.ListenAndServe(config.host+":"+strconv.Itoa(config.port), nil)
 
 }
