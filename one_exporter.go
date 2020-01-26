@@ -109,7 +109,7 @@ func recordMetrics(config config, logger log.Logger) {
 		pool, err := controller.Hosts().Info()
 		if err != nil {
 			level.Error(logger).Log("msg", "error retrieving hosts info", "error", err)
-			panic(err)
+			return
 		}
 
 		type metrics struct {
@@ -155,7 +155,7 @@ func recordMetrics(config config, logger log.Logger) {
 	}
 }
 
-func newConfig(fileName string, logger log.Logger) config {
+func newConfig(fileName string, logger log.Logger) (config, error) {
 
 	viper.SetDefault("endpoint", "") // "" will be set to "http://localhost:2633/RPC2" by goca
 	viper.SetDefault("interval", 60)
@@ -176,20 +176,18 @@ func newConfig(fileName string, logger log.Logger) config {
 
 	err := viper.ReadInConfig()
 	if err != nil {
-		level.Error(logger).Log("msg", "error reading config file", "error", err)
-		panic(err)
+		return config{}, err
 	}
 
 	return config{
 		user:     viper.Get("user").(string),
 		password: viper.Get("password").(string),
-		endpoint: "",
+		endpoint: viper.Get("endpoint").(string),
 		interval: viper.Get("interval").(int),
 		host:     viper.Get("host").(string),
 		port:     viper.Get("port").(int),
 		path:     viper.Get("path").(string),
-	}
-
+	}, nil
 }
 
 func allowedLevel(logLevel string) level.Option {
@@ -216,7 +214,12 @@ func main() {
 	logger = level.NewFilter(logger, allowedLevel(*logLevel))
 	level.Info(logger).Log("msg", "starting exporter for OpenNebula")
 
-	config := newConfig(*cfgFile, logger)
+	config, err := newConfig(*cfgFile, logger)
+	if err != nil {
+		level.Error(logger).Log("error", err)
+		return
+	}
+
 	level.Debug(logger).Log("msg", "loaded config", "user", config.user, "endpoint", config.endpoint)
 
 	initCollectors()
@@ -225,6 +228,10 @@ func main() {
 
 	level.Info(logger).Log("msg", "starting exporter", "host", config.host, "port", config.port, "path", config.path)
 	http.Handle(config.path, promhttp.Handler())
-	http.ListenAndServe(config.host+":"+strconv.Itoa(config.port), nil)
+
+	err = http.ListenAndServe(config.host+":"+strconv.Itoa(config.port), nil)
+	if err != nil {
+		level.Error(logger).Log("error", err)
+	}
 
 }
