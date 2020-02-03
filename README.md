@@ -1,6 +1,6 @@
 # ONE exporter
 
-Prometheus exporter for OpenNebula clusters, written in Go. The exporter exposes the metrics of the hosts in a cluster, through the GOCA API of the OpenNebula Frontend. The metrics are provided both per host and summed per cluster to give you a quick overview of your OpenNebula cluster as a whole.
+Prometheus exporter for OpenNebula clusters, written in Go. The exporter exposes the metrics of the hosts in a cluster, through the GOCA API of the OpenNebula Frontend. The metrics are provided both per host and summed per cluster to give you a quick overview of your OpenNebula cluster as a whole. While the cluster metrics aren't strictly necessary as they can be calculated using the host metrics, they are added for convenience.
 
 
 ## Use
